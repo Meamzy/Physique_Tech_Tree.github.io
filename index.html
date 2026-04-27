@@ -1,309 +1,221 @@
-import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
-
-// --- Firebase Initialization (Canvas Environment Pattern) ---
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-  // Placeholder for your GitHub Pages deployment. 
-  // You will replace this with your actual Firebase project config later.
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
-};
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'workout-tree-app';
-
-// --- Tech Tree Data ---
-const branches = ['Push', 'Pull', 'Core', 'Legs'];
-const ranks = [1, 2, 3, 4, 5];
-
-const exercises = [
-  // Rank I
-  { id: 'push1', branch: 'Push', rank: 1, name: 'Wall Push-ups', target: 30, unit: 'Reps' },
-  { id: 'pull1', branch: 'Pull', rank: 1, name: 'Doorway Rows', target: 20, unit: 'Reps' },
-  { id: 'core1', branch: 'Core', rank: 1, name: 'Lying Knee Raises', target: 20, unit: 'Reps' },
-  { id: 'legs1', branch: 'Legs', rank: 1, name: 'Bodyweight Squats', target: 30, unit: 'Reps' },
-  
-  // Rank II
-  { id: 'push2', branch: 'Push', rank: 2, name: 'Regular Push-ups', target: 25, unit: 'Reps' },
-  { id: 'pull2', branch: 'Pull', rank: 2, name: 'Table Inverted Rows', target: 20, unit: 'Reps' },
-  { id: 'core2', branch: 'Core', rank: 2, name: 'Lying Leg Raises', target: 20, unit: 'Reps' },
-  { id: 'legs2', branch: 'Legs', rank: 2, name: 'Lunges', target: 20, unit: 'Reps/Leg' },
-
-  // Rank III
-  { id: 'push3', branch: 'Push', rank: 3, name: 'Decline Push-ups', target: 40, unit: 'Reps' },
-  { id: 'pull3', branch: 'Pull', rank: 3, name: 'Pull-up Negatives', target: 10, unit: 'Reps' },
-  { id: 'core3', branch: 'Core', rank: 3, name: 'V-Ups', target: 25, unit: 'Reps' },
-  { id: 'legs3', branch: 'Legs', rank: 3, name: 'Bulgarian Split Squats', target: 20, unit: 'Reps/Leg' },
-
-  // Rank IV
-  { id: 'push4', branch: 'Push', rank: 4, name: 'Wall Handstand Push-ups', target: 15, unit: 'Reps' },
-  { id: 'pull4', branch: 'Pull', rank: 4, name: 'Strict Pull-ups', target: 10, unit: 'Reps' },
-  { id: 'core4', branch: 'Core', rank: 4, name: 'Floor L-Sit', target: 15, unit: 'Secs' },
-  { id: 'legs4', branch: 'Legs', rank: 4, name: 'Assisted Pistol Squats', target: 10, unit: 'Reps/Leg' },
-
-  // Rank V (The Ultimate Aesthetic Goals)
-  { id: 'push5', branch: 'Push', rank: 5, name: 'One-Arm Push-ups', target: 10, unit: 'Reps/Arm' },
-  { id: 'pull5', branch: 'Pull', rank: 5, name: 'Strict Dead-Hang Pull-ups', target: 20, unit: 'Reps' },
-  { id: 'core5', branch: 'Core', rank: 5, name: 'Floor L-Sit', target: 60, unit: 'Secs' },
-  { id: 'legs5', branch: 'Legs', rank: 5, name: 'Pistol Squats', target: 15, unit: 'Reps/Leg' },
-];
-
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [progress, setProgress] = useState({}); // { 'push1': 15, 'pull1': 20 }
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState('');
-
-  // 1. Initialize Auth
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth error:", err);
-        setErrorMsg("Failed to authenticate. Operating locally.");
-        setLoading(false);
-      }
-    };
-    initAuth();
-
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (!currentUser) setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  // 2. Fetch User Progress from Firestore
-  useEffect(() => {
-    if (!user) return;
-
-    const progressDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'userdata', 'progress');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Physique Research Tree</title>
     
-    const unsubscribe = onSnapshot(
-      progressDocRef, 
-      (docSnap) => {
-        if (docSnap.exists()) {
-          setProgress(docSnap.data());
-        }
-        setLoading(false);
-      },
-      (err) => {
-        console.error("Firestore read error:", err);
-        setErrorMsg("Failed to load your research data.");
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [user]);
-
-  // Handle Slider changes
-  const handleProgressChange = async (exerciseId, value, isUnlocked) => {
-    if (!isUnlocked || !user) return;
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
     
-    const newProgress = { ...progress, [exerciseId]: value };
-    setProgress(newProgress); // Optimistic UI update
-
-    // Save to Firestore
-    try {
-      const progressDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'userdata', 'progress');
-      await setDoc(progressDocRef, { [exerciseId]: value }, { merge: true });
-    } catch (err) {
-      console.error("Error saving progress:", err);
-      setErrorMsg("Failed to save progress.");
-    }
-  };
-
-  const isExerciseCompleted = (exerciseId) => {
-    const exercise = exercises.find(ex => ex.id === exerciseId);
-    return progress[exerciseId] >= exercise.target;
-  };
-
-  const isRankUnlocked = (rank) => {
-    if (rank === 1) return true;
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     
-    // Check if ALL exercises in the previous rank are fully completed
-    const previousRankExercises = exercises.filter(ex => ex.rank === rank - 1);
-    return previousRankExercises.every(ex => progress[ex.id] >= ex.target);
-  };
+    <!-- Babel for JSX compilation in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-[#14181c]">
+    <div id="root"></div>
 
-  const getRomanNumeral = (num) => {
-    const numerals = ['0', 'I', 'II', 'III', 'IV', 'V'];
-    return numerals[num];
-  };
+    <script type="text/babel">
+        const { useState, useEffect } = React;
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#14181c] flex items-center justify-center font-sans text-slate-300">
-        <div className="animate-spin w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full"></div>
-      </div>
-    );
-  }
+        // --- Tech Tree Data ---
+        const branches = ['Push', 'Pull', 'Core', 'Legs'];
+        const ranks = [1, 2, 3, 4, 5];
 
-  return (
-    <div className="min-h-screen bg-[#14181c] text-[#a0a5a9] p-4 md:p-8 font-sans selection:bg-amber-600 selection:text-white">
-      <div className="max-w-6xl mx-auto">
-        
-        <header className="mb-8 flex flex-col items-center border-b border-[#2b3238] pb-4">
-          <h1 className="text-3xl md:text-4xl font-black uppercase tracking-widest text-[#d8dbde] drop-shadow-md mb-2 flex items-center gap-3">
-            <svg className="w-8 h-8 text-amber-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-            Physique Research Tree
-          </h1>
-          <p className="text-sm uppercase tracking-widest text-[#788188]">Army • Aviation • Physical Form</p>
-          {errorMsg && <p className="text-red-500 text-xs mt-2 bg-red-900/20 px-3 py-1 rounded">{errorMsg}</p>}
-        </header>
+        const exercises = [
+            { id: 'push1', branch: 'Push', rank: 1, name: 'Wall Push-ups', target: 30, unit: 'Reps' },
+            { id: 'pull1', branch: 'Pull', rank: 1, name: 'Doorway Rows', target: 20, unit: 'Reps' },
+            { id: 'core1', branch: 'Core', rank: 1, name: 'Lying Knee Raises', target: 20, unit: 'Reps' },
+            { id: 'legs1', branch: 'Legs', rank: 1, name: 'Bodyweight Squats', target: 30, unit: 'Reps' },
+            
+            { id: 'push2', branch: 'Push', rank: 2, name: 'Regular Push-ups', target: 25, unit: 'Reps' },
+            { id: 'pull2', branch: 'Pull', rank: 2, name: 'Table Inverted Rows', target: 20, unit: 'Reps' },
+            { id: 'core2', branch: 'Core', rank: 2, name: 'Lying Leg Raises', target: 20, unit: 'Reps' },
+            { id: 'legs2', branch: 'Legs', rank: 2, name: 'Lunges', target: 20, unit: 'Reps/Leg' },
 
-        <div className="bg-[#1c2227] p-6 rounded-sm border border-[#2b3238] shadow-[0_10px_30px_rgba(0,0,0,0.5)] overflow-x-auto relative">
-          
-          {/* subtle background grid for the "blueprint" feel */}
-          <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSA0MCAwIEwgMCAwIDAgNDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzJiMzIzOCIgc3Ryb2tlLXdpZHRoPSIwLjUiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-30 pointer-events-none"></div>
+            { id: 'push3', branch: 'Push', rank: 3, name: 'Decline Push-ups', target: 40, unit: 'Reps' },
+            { id: 'pull3', branch: 'Pull', rank: 3, name: 'Pull-up Negatives', target: 10, unit: 'Reps' },
+            { id: 'core3', branch: 'Core', rank: 3, name: 'V-Ups', target: 25, unit: 'Reps' },
+            { id: 'legs3', branch: 'Legs', rank: 3, name: 'Bulgarian Split Squats', target: 20, unit: 'Reps/Leg' },
 
-          <div className="min-w-[800px] relative z-10">
-            {/* Headers */}
-            <div className="grid grid-cols-5 gap-6 mb-8">
-              <div className="col-span-1"></div> {/* Empty corner */}
-              {branches.map(branch => (
-                <div key={branch} className="text-center font-bold text-[#b4bac0] uppercase tracking-widest text-xs bg-[#242b31] py-2 border-b-2 border-amber-600/80 shadow-sm">
-                  {branch}
-                </div>
-              ))}
-            </div>
+            { id: 'push4', branch: 'Push', rank: 4, name: 'Wall Handstand Push-ups', target: 15, unit: 'Reps' },
+            { id: 'pull4', branch: 'Pull', rank: 4, name: 'Strict Pull-ups', target: 10, unit: 'Reps' },
+            { id: 'core4', branch: 'Core', rank: 4, name: 'Floor L-Sit', target: 15, unit: 'Secs' },
+            { id: 'legs4', branch: 'Legs', rank: 4, name: 'Assisted Pistol Squats', target: 10, unit: 'Reps/Leg' },
 
-            {/* Ranks Container */}
-            <div className="space-y-12">
-              {ranks.map(rank => {
-                const unlocked = isRankUnlocked(rank);
+            { id: 'push5', branch: 'Push', rank: 5, name: 'One-Arm Push-ups', target: 10, unit: 'Reps/Arm' },
+            { id: 'pull5', branch: 'Pull', rank: 5, name: 'Strict Dead-Hang Pull-ups', target: 20, unit: 'Reps' },
+            { id: 'core5', branch: 'Core', rank: 5, name: 'Floor L-Sit', target: 60, unit: 'Secs' },
+            { id: 'legs5', branch: 'Legs', rank: 5, name: 'Pistol Squats', target: 15, unit: 'Reps/Leg' },
+        ];
+
+        function App() {
+            const [progress, setProgress] = useState({});
+
+            // Fetch User Progress from Local Storage on mount
+            useEffect(() => {
+                const savedData = localStorage.getItem('wt-fitness-progress');
+                if (savedData) {
+                    setProgress(JSON.parse(savedData));
+                }
+            }, []);
+
+            // Handle Slider changes
+            const handleProgressChange = (exerciseId, value, isUnlocked) => {
+                if (!isUnlocked) return;
                 
-                return (
-                  <div key={rank} className={`relative flex gap-6 ${!unlocked ? 'opacity-40 grayscale-[50%]' : 'opacity-100'} transition-all duration-500`}>
-                    
-                    {/* Rank Indicator (War Thunder Style Tab) */}
-                    <div className="w-16 flex-shrink-0 flex items-center justify-center bg-gradient-to-b from-[#2b3238] to-[#1c2227] border border-[#3a4349] rounded-l-md shadow-inner relative">
-                      <div className="absolute right-0 top-0 bottom-0 w-1 bg-amber-600/50"></div>
-                      <div className="text-center py-8">
-                        <div className="text-[10px] text-[#788188] uppercase tracking-widest mb-1 rotate-180" style={{ writingMode: 'vertical-rl' }}>Rank</div>
-                        <div className={`text-xl font-black ${unlocked ? 'text-white' : 'text-[#5a6369]'}`}>
-                          {getRomanNumeral(rank)}
-                        </div>
-                      </div>
-                    </div>
+                const newProgress = { ...progress, [exerciseId]: value };
+                setProgress(newProgress); 
+                
+                // Save to local storage
+                localStorage.setItem('wt-fitness-progress', JSON.stringify(newProgress));
+            };
 
-                    {/* Nodes Grid */}
-                    <div className="grid grid-cols-4 gap-6 flex-grow relative">
-                      {branches.map((branch, index) => {
-                        const exercise = exercises.find(ex => ex.rank === rank && ex.branch === branch);
-                        if (!exercise) return <div key={branch} />;
+            const isExerciseCompleted = (exerciseId) => {
+                const exercise = exercises.find(ex => ex.id === exerciseId);
+                return (progress[exerciseId] || 0) >= exercise.target;
+            };
 
-                        const currentVal = progress[exercise.id] || 0;
-                        const isDone = currentVal >= exercise.target;
-                        const percent = Math.min(100, Math.round((currentVal / exercise.target) * 100));
+            const isRankUnlocked = (rank) => {
+                if (rank === 1) return true;
+                const previousRankExercises = exercises.filter(ex => ex.rank === rank - 1);
+                return previousRankExercises.every(ex => (progress[ex.id] || 0) >= ex.target);
+            };
 
-                        return (
-                          <div key={exercise.id} className="relative flex flex-col items-center">
-                            
-                            {/* The Card */}
-                            <div 
-                              className={`
-                                w-full relative rounded-sm border transition-all duration-300 overflow-hidden bg-[#21262b]
-                                ${!unlocked ? 'border-[#2b3238]' : ''}
-                                ${unlocked && !isDone ? 'border-[#4a555e] hover:border-[#6a7a87]' : ''}
-                                ${isDone ? 'border-amber-500/50 bg-[#2a2c20]' : ''}
-                              `}
-                            >
-                              {/* Top Bar / Status */}
-                              <div className={`h-1.5 w-full ${isDone ? 'bg-amber-500' : unlocked ? 'bg-[#3a4349]' : 'bg-[#1c2227]'}`}></div>
+            const getRomanNumeral = (num) => {
+                const numerals = ['0', 'I', 'II', 'III', 'IV', 'V'];
+                return numerals[num];
+            };
 
-                              <div className="p-3">
-                                {/* Icon / Name Area */}
-                                <div className="flex justify-between items-start mb-3">
-                                  <h3 className={`font-bold text-sm leading-tight ${isDone ? 'text-[#f0f2f4]' : 'text-[#b4bac0]'}`}>
-                                    {exercise.name}
-                                  </h3>
-                                  {isDone && (
-                                    <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                  )}
-                                  {!unlocked && (
-                                    <svg className="w-4 h-4 text-[#5a6369] flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                                    </svg>
-                                  )}
+            return (
+                <div className="min-h-screen text-[#a0a5a9] p-4 md:p-8 font-sans selection:bg-amber-600 selection:text-white">
+                    <div className="max-w-6xl mx-auto">
+                        <header className="mb-8 flex flex-col items-center border-b border-[#2b3238] pb-4">
+                            <h1 className="text-3xl md:text-4xl font-black uppercase tracking-widest text-[#d8dbde] drop-shadow-md mb-2 flex items-center gap-3">
+                                <svg className="w-8 h-8 text-amber-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                                Physique Research Tree
+                            </h1>
+                            <p className="text-sm uppercase tracking-widest text-[#788188]">Army • Aviation • Physical Form</p>
+                        </header>
+
+                        <div className="bg-[#1c2227] p-6 rounded-sm border border-[#2b3238] shadow-[0_10px_30px_rgba(0,0,0,0.5)] overflow-x-auto relative">
+                            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSA0MCAwIEwgMCAwIDAgNDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzJiMzIzOCIgc3Ryb2tlLXdpZHRoPSIwLjUiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-30 pointer-events-none"></div>
+
+                            <div className="min-w-[800px] relative z-10">
+                                <div className="grid grid-cols-5 gap-6 mb-8">
+                                    <div className="col-span-1"></div>
+                                    {branches.map(branch => (
+                                        <div key={branch} className="text-center font-bold text-[#b4bac0] uppercase tracking-widest text-xs bg-[#242b31] py-2 border-b-2 border-amber-600/80 shadow-sm">
+                                            {branch}
+                                        </div>
+                                    ))}
                                 </div>
 
-                                {/* Research Progress Area */}
-                                <div className="mt-4">
-                                  <div className="flex justify-between text-[10px] text-[#788188] uppercase font-bold tracking-wider mb-1">
-                                    <span>Research</span>
-                                    <span className={isDone ? 'text-amber-500' : ''}>{currentVal} / {exercise.target} {exercise.unit}</span>
-                                  </div>
-                                  
-                                  {/* Custom Slider replacing native range for better WT look */}
-                                  <div className="relative w-full h-2 bg-[#14181c] rounded-sm overflow-visible group">
-                                    {/* Progress Fill */}
-                                    <div 
-                                      className="absolute top-0 left-0 h-full bg-amber-500 rounded-sm pointer-events-none transition-all duration-200"
-                                      style={{ width: `${percent}%` }}
-                                    ></div>
-                                    
-                                    {/* Range Input overlaid */}
-                                    <input
-                                      type="range"
-                                      min="0"
-                                      max={exercise.target}
-                                      value={currentVal}
-                                      onChange={(e) => handleProgressChange(exercise.id, parseInt(e.target.value), unlocked)}
-                                      disabled={!unlocked}
-                                      className={`
-                                        absolute top-[-5px] left-0 w-full h-[12px] opacity-0 cursor-pointer z-10
-                                        ${!unlocked ? 'cursor-not-allowed' : ''}
-                                      `}
-                                    />
+                                <div className="space-y-12">
+                                    {ranks.map(rank => {
+                                        const unlocked = isRankUnlocked(rank);
+                                        
+                                        return (
+                                            <div key={rank} className={`relative flex gap-6 ${!unlocked ? 'opacity-40 grayscale-[50%]' : 'opacity-100'} transition-all duration-500`}>
+                                                
+                                                <div className="w-16 flex-shrink-0 flex items-center justify-center bg-gradient-to-b from-[#2b3238] to-[#1c2227] border border-[#3a4349] rounded-l-md shadow-inner relative">
+                                                    <div className="absolute right-0 top-0 bottom-0 w-1 bg-amber-600/50"></div>
+                                                    <div className="text-center py-8">
+                                                        <div className="text-[10px] text-[#788188] uppercase tracking-widest mb-1 rotate-180" style={{ writingMode: 'vertical-rl' }}>Rank</div>
+                                                        <div className={`text-xl font-black ${unlocked ? 'text-white' : 'text-[#5a6369]'}`}>
+                                                            {getRomanNumeral(rank)}
+                                                        </div>
+                                                    </div>
+                                                </div>
 
-                                    {/* Custom Thumb indicator that appears on hover */}
-                                    <div 
-                                      className="absolute top-[-4px] h-4 w-1 bg-white shadow hidden group-hover:block pointer-events-none"
-                                      style={{ left: `calc(${percent}% - 2px)` }}
-                                    ></div>
-                                  </div>
+                                                <div className="grid grid-cols-4 gap-6 flex-grow relative">
+                                                    {branches.map((branch) => {
+                                                        const exercise = exercises.find(ex => ex.rank === rank && ex.branch === branch);
+                                                        if (!exercise) return <div key={branch} />;
+
+                                                        const currentVal = progress[exercise.id] || 0;
+                                                        const isDone = currentVal >= exercise.target;
+                                                        const percent = Math.min(100, Math.round((currentVal / exercise.target) * 100));
+
+                                                        return (
+                                                            <div key={exercise.id} className="relative flex flex-col items-center">
+                                                                <div 
+                                                                    className={`w-full relative rounded-sm border transition-all duration-300 overflow-hidden bg-[#21262b] ${!unlocked ? 'border-[#2b3238]' : ''} ${unlocked && !isDone ? 'border-[#4a555e] hover:border-[#6a7a87]' : ''} ${isDone ? 'border-amber-500/50 bg-[#2a2c20]' : ''}`}
+                                                                >
+                                                                    <div className={`h-1.5 w-full ${isDone ? 'bg-amber-500' : unlocked ? 'bg-[#3a4349]' : 'bg-[#1c2227]'}`}></div>
+
+                                                                    <div className="p-3">
+                                                                        <div className="flex justify-between items-start mb-3">
+                                                                            <h3 className={`font-bold text-sm leading-tight ${isDone ? 'text-[#f0f2f4]' : 'text-[#b4bac0]'}`}>
+                                                                                {exercise.name}
+                                                                            </h3>
+                                                                            {isDone && (
+                                                                                <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                                                </svg>
+                                                                            )}
+                                                                            {!unlocked && (
+                                                                                <svg className="w-4 h-4 text-[#5a6369] flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                                                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                                                                </svg>
+                                                                            )}
+                                                                        </div>
+
+                                                                        <div className="mt-4">
+                                                                            <div className="flex justify-between text-[10px] text-[#788188] uppercase font-bold tracking-wider mb-1">
+                                                                                <span>Research</span>
+                                                                                <span className={isDone ? 'text-amber-500' : ''}>{currentVal} / {exercise.target} {exercise.unit}</span>
+                                                                            </div>
+                                                                            
+                                                                            <div className="relative w-full h-2 bg-[#14181c] rounded-sm overflow-visible group">
+                                                                                <div 
+                                                                                    className="absolute top-0 left-0 h-full bg-amber-500 rounded-sm pointer-events-none transition-all duration-200"
+                                                                                    style={{ width: `${percent}%` }}
+                                                                                ></div>
+                                                                                <input
+                                                                                    type="range"
+                                                                                    min="0"
+                                                                                    max={exercise.target}
+                                                                                    value={currentVal}
+                                                                                    onChange={(e) => handleProgressChange(exercise.id, parseInt(e.target.value), unlocked)}
+                                                                                    disabled={!unlocked}
+                                                                                    className={`absolute top-[-5px] left-0 w-full h-[12px] opacity-0 cursor-pointer z-10 ${!unlocked ? 'cursor-not-allowed' : ''}`}
+                                                                                />
+                                                                                <div 
+                                                                                    className="absolute top-[-4px] h-4 w-1 bg-white shadow hidden group-hover:block pointer-events-none"
+                                                                                    style={{ left: `calc(${percent}% - 2px)` }}
+                                                                                ></div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                {rank < 5 && (
+                                                                    <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center opacity-50">
+                                                                        <div className={`w-[2px] h-6 ${unlocked && isDone ? 'bg-amber-600' : 'bg-[#3a4349]'}`}></div>
+                                                                        <div className={`w-0 h-0 border-l-[4px] border-r-[4px] border-t-[6px] border-l-transparent border-r-transparent ${unlocked && isDone ? 'border-t-amber-600' : 'border-t-[#3a4349]'}`}></div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                              </div>
                             </div>
-
-                            {/* Down Arrow connector (except for last rank) */}
-                            {rank < 5 && (
-                              <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center opacity-50">
-                                <div className={`w-[2px] h-6 ${unlocked && isDone ? 'bg-amber-600' : 'bg-[#3a4349]'}`}></div>
-                                <div className={`w-0 h-0 border-l-[4px] border-r-[4px] border-t-[6px] border-l-transparent border-r-transparent ${unlocked && isDone ? 'border-t-amber-600' : 'border-t-[#3a4349]'}`}></div>
-                              </div>
-                            )}
-
-                          </div>
-                        );
-                      })}
+                        </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+                </div>
+            );
+        }
 
-      </div>
-    </div>
-  );
-}
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
